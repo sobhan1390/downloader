@@ -1,4 +1,4 @@
-name: ⬇️ 1-Download from url
+name: ⬇️ Download from URL
 
 on:
   workflow_dispatch:
@@ -20,6 +20,11 @@ on:
         required: false
         default: 90
         type: number
+      wait_seconds:
+        description: 'Seconds to wait before downloading (for pages that require a delay, e.g. 5)'
+        required: false
+        default: 0
+        type: number
 
 jobs:
   save-file:
@@ -27,21 +32,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install aria2 and zip
+      - name: Install required tools
         run: |
           sudo apt-get update
           sudo apt-get install -y aria2 zip
-
-      - name: AVASAM Downloader - https://avasam.ir
-        run: |
-          echo "🏷️  AVASAM - Your Download Solution"
-          echo "🌐 https://avasam.ir"
-          echo ""
 
       - name: Download files
         run: |
@@ -49,43 +48,57 @@ jobs:
           URLS="${{ github.event.inputs.urls }}"
           SPLIT_THRESHOLD_MB="${{ github.event.inputs.split_threshold_mb }}"
           SPLIT_THRESHOLD_BYTES=$(( SPLIT_THRESHOLD_MB * 1024 * 1024 ))
+          WAIT_SECONDS="${{ github.event.inputs.wait_seconds }}"
 
-          echo "🏷️  AVASAM (https://avasam.ir) - Downloading with mode: $MODE"
+          echo "Mode: $MODE"
           echo "Split threshold: $SPLIT_THRESHOLD_MB MB"
+          echo "Wait before each URL: $WAIT_SECONDS seconds"
 
           mkdir -p downloads tmp_downloads
 
-          # Download each URL
           for URL in $URLS; do
+            echo "Processing: $URL"
+
+            # Optional wait (e.g., for a page that shows a countdown)
+            if [ "$WAIT_SECONDS" -gt 0 ]; then
+              echo "Waiting $WAIT_SECONDS seconds ..."
+              sleep "$WAIT_SECONDS"
+            fi
+
             FILENAME=$(basename "$URL")
-            echo "⬇️ Downloading $URL -> $FILENAME"
+            echo "Downloading $URL"
+
             aria2c \
               --split=2 \
               --max-connection-per-server=2 \
               --min-split-size=90M \
               --dir="tmp_downloads" \
               --out="$FILENAME" \
+              --header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+              --header="Referer: https://www.curseforge.com/" \
+              --follow-metalink=mem \
+              --continue=true \
+              --max-tries=5 \
               "$URL"
           done
 
-          # Zip all downloads if mode is 'zip'
+          # Package if mode is 'zip'
           if [ "$MODE" = "zip" ]; then
             ARCHIVE_NAME="downloads/archive_$(date +%Y%m%d_%H%M%S).zip"
-            echo "📦 Creating zip archive: $ARCHIVE_NAME"
+            echo "Creating zip archive: $ARCHIVE_NAME"
             zip -j "$ARCHIVE_NAME" tmp_downloads/*
             rm -rf tmp_downloads
           else
-            # Normal mode: handle splitting large files
+            # Normal mode: split large files if needed
             for FILE in tmp_downloads/*; do
               [ -f "$FILE" ] || continue
               SIZE=$(stat -c%s "$FILE")
               BASENAME=$(basename "$FILE")
 
               if [ "$SPLIT_THRESHOLD_BYTES" -gt 0 ] && [ "$SIZE" -gt "$SPLIT_THRESHOLD_BYTES" ]; then
-                echo "✂️ $BASENAME is $(( SIZE / 1024 / 1024 ))MB — splitting into ${SPLIT_THRESHOLD_MB}MB parts (zip-split)"
-                # Create a zip split into parts that can be reassembled with `zip -F`
+                echo "Splitting $BASENAME ($(( SIZE / 1024 / 1024 )) MB) into ${SPLIT_THRESHOLD_MB} MB parts"
                 zip -0 -s "${SPLIT_THRESHOLD_MB}m" "downloads/${BASENAME}.zip" -j "$FILE"
-                echo "✅ Parts: $(ls downloads/${BASENAME}.z* 2>/dev/null | wc -l)"
+                echo "Parts: $(ls downloads/${BASENAME}.z* 2>/dev/null | wc -l)"
               else
                 cp "$FILE" "downloads/$BASENAME"
               fi
@@ -93,19 +106,16 @@ jobs:
             rm -rf tmp_downloads
           fi
 
-      - name: Commit & Push in batches of 5 files (AVASAM)
+      - name: Commit and push files
         run: |
           BRANCH="${GITHUB_REF_NAME}"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          echo "🏷️  AVASAM (https://avasam.ir) - Preparing to commit files"
-
-          # Collect all new/modified files under downloads/
           mapfile -t ALL_FILES < <(git ls-files --others --modified --exclude-standard downloads/)
 
           TOTAL=${#ALL_FILES[@]}
-          echo "📦 Total files to push: $TOTAL"
+          echo "Total new/modified files: $TOTAL"
 
           if [ "$TOTAL" -eq 0 ]; then
             echo "Nothing to commit"
@@ -119,16 +129,15 @@ jobs:
             BATCH_NUM=$(( BATCH_NUM + 1 ))
             BATCH=("${ALL_FILES[@]:i:BATCH_SIZE}")
 
-            echo "🚀 Pushing batch $BATCH_NUM: files $((i+1))–$(( i + ${#BATCH[@]} )) of $TOTAL"
+            echo "Pushing batch $BATCH_NUM: files $((i+1))–$(( i + ${#BATCH[@]} )) of $TOTAL"
 
             git add "${BATCH[@]}"
-            git commit -m "[AVASAM] Add downloaded files — batch $BATCH_NUM [skip ci]"
+            git commit -m "Add downloaded files — batch $BATCH_NUM [skip ci]"
 
-            # Pull with rebase before each push to avoid conflicts
             git pull --rebase origin "$BRANCH"
             git push origin HEAD:"$BRANCH"
 
-            echo "✅ Batch $BATCH_NUM pushed"
+            echo "Batch $BATCH_NUM pushed"
           done
 
-          echo "🎉 All $TOTAL files pushed in $BATCH_NUM batch(es) — AVASAM (https://avasam.ir)"
+          echo "All $TOTAL files pushed in $BATCH_NUM batch(es)."
