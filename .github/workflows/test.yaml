@@ -1,16 +1,16 @@
-name: ⬇️ Download from CurseForge (Playwright)
+name: ⬇️ Download from CurseForge (Playwright fixed)
 
 on:
   workflow_dispatch:
     inputs:
       urls:
-        description: 'Space-separated list of download URLs (e.g., /download/7914876)'
+        description: 'Space-separated list of download URLs'
         required: true
         type: string
       wait_seconds:
-        description: 'Seconds to wait before download (default 5)'
+        description: 'Seconds to wait (≥5 for CurseForge countdown)'
         required: false
-        default: 5
+        default: 8
         type: number
 
 jobs:
@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,14 +32,13 @@ jobs:
 
       - name: Install Playwright
         run: |
-          python -m pip install --upgrade pip
           pip install playwright
           playwright install --with-deps chromium
 
       - name: Download files using Playwright
         run: |
-          import os, sys, time
-          from urllib.parse import urlparse, unquote, urljoin
+          import os, sys, time, re
+          from urllib.parse import urljoin
           from playwright.sync_api import sync_playwright
 
           urls = """${{ github.event.inputs.urls }}""".strip().split()
@@ -54,7 +54,6 @@ jobs:
               page = context.new_page()
 
               for url in urls:
-                  # اگر مسیر نسبی بود کاملش کن
                   if not url.startswith("http"):
                       full_url = urljoin(base_url, url)
                   else:
@@ -63,38 +62,22 @@ jobs:
                   print(f"\n→ Opening: {full_url}")
                   page.goto(full_url, wait_until="domcontentloaded")
 
-                  # صبر می‌کنیم تا شمارش‌معکوس احتمالی تموم بشه
-                  print(f"Waiting {wait} seconds for the countdown...")
-                  time.sleep(wait)
-
-                  # حالا شروع به انتظار برای دانلود می‌کنیم
+                  # شمارش معکوس و شروع خودکار دانلود
                   try:
-                      with page.expect_download(timeout=15000) as download_info:
-                          # اگر صفحه دکمه‌ای داره روش کلیک کن؛ وگرنه ما فرض می‌کنیم
-                          # که بعد از اتمام شمارش‌معکوس خودش دانلود می‌شه.
-                          # می‌تونیم یه کلیک روی لینک "Download" یا "Click here" بزنیم.
-                          # اینجا یه تلاش می‌کنیم روی دکمه‌ی اصلی دانلود کلیک کنیم:
-                          page.click("a.btn-download, a:has-text('Download'), a[href*='download']")
+                      with page.expect_download(timeout=30000) as download_info:
+                          print(f"Waiting {wait} seconds for countdown...")
+                          time.sleep(wait)
                       download = download_info.value
 
-                      # استخراج نام فایل از Content-Disposition
-                      cd = download.headers.get('content-disposition', '')
-                      import re
-                      fname = None
-                      if cd:
-                          fname_match = re.findall('filename="?(.+)"?', cd)
-                          if fname_match:
-                              fname = fname_match[0]
+                      fname = download.suggested_filename
                       if not fname:
-                          fname = os.path.basename(unquote(urlparse(full_url).path))
-                          if not fname:
-                              fname = "downloaded_file"
+                          fname = os.path.basename(full_url.rstrip('/')) or "downloaded_file"
 
                       filepath = os.path.join(out_dir, fname)
                       download.save_as(filepath)
                       print(f"✅ Saved: {filepath}")
                   except Exception as e:
-                      print(f"❌ Failed to trigger download for {full_url}: {e}")
+                      print(f"❌ Failed to download {full_url}: {e}")
                       continue
 
               browser.close()
@@ -108,7 +91,7 @@ jobs:
           if git diff --cached --exit-code; then
             echo "No changes to commit."
           else
-            git commit -m "Update downloaded files via Playwright"
+            git commit -m "Update downloaded files"
             git pull --rebase origin ${GITHUB_REF_NAME}
             git push origin HEAD:${GITHUB_REF_NAME}
             echo "Pushed successfully."
