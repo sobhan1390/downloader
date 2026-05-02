@@ -1,0 +1,25 @@
+# .github/workflows/download.yml
+name: Download Stardew Valley Polish Translation
+
+on:
+  workflow_dispatch:  # فقط با دست (دستی) اجرا میشه
+  # می‌تونی زمان‌بندی هم اضافه کنی:
+  # schedule:
+  #   - cron: '0 0 * * 0'  # هر یکشنبه نیمه‌شب
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download file from CurseForge
+        run: |
+          curl -L -O -J \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+            -H "Referer: https://www.curseforge.com/stardewvalley/mods/spolszczenie-polskie-tlumaczenie-stardew-valley" \
+            "https://www.curseforge.com/stardewvalley/mods/spolszczenie-polskie-tlumaczenie-stardew-valley/download/7914876"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spolszczenie
+          path: ./*.zip   # فایل دانلود شده (پسوند zip) رو آپلود کن
