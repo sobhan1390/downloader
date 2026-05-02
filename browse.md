@@ -7,3 +7,4 @@
 - [https___smapi_io (20260502_071853)](pages/smapi.io/https___smapi_io/20260502_071853/index.md) — 1 media files
 - [https___www_nexusmods_com_stardewvalley_mods_5662 (20260502_072833)](pages/nexusmods.com/https___www_nexusmods_com_stardewvalley_mods_5662/20260502_072833/index.md) — 0 media files
 - [https___www_curseforge_com_stardewvalley_mods_spolszczenie_polskie_tlumaczenie_stardew_valley (20260502_103753)](pages/curseforge.com/https___www_curseforge_com_stardewvalley_mods_spolszczenie_polskie_tlumaczenie_stardew_valley/20260502_103753/index.md) — 25 media files
+- [https___www_curseforge_com_stardewvalley_mods_espanol_chileno_revisitado (20260502_104416)](pages/curseforge.com/https___www_curseforge_com_stardewvalley_mods_espanol_chileno_revisitado/20260502_104416/index.md) — 0 media files
