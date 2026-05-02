@@ -1,39 +1,104 @@
-name: Download and Commit Polish Translation
+name: ⬇️ Download from CurseForge (Python cloudscraper)
 
 on:
-  workflow_dispatch:        # اجرای دستی
-  schedule:                # اجرای خودکار مثلاً هفته‌ای یک‌بار
-    - cron: '0 0 * * 0'   # هر یکشنبه ساعت ۰۰:۰۰ UTC
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'Space-separated list of download URLs'
+        required: true
+        type: string
+      wait_seconds:
+        description: 'Seconds to wait before downloading (for pages with countdown)'
+        required: false
+        default: 5
+        type: number
 
 jobs:
   download-and-commit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Ensure downloads directory exists
-        run: mkdir -p downloads
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Download file from CurseForge
-        working-directory: downloads
-        run: |
-          curl -L -O -J \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
-            -H "Referer: https://www.curseforge.com/stardewvalley/mods/spolszczenie-polskie-tlumaczenie-stardew-valley" \
-            "https://www.curseforge.com/stardewvalley/mods/spolszczenie-polskie-tlumaczenie-stardew-valley/download/7914876"
+      - name: Install dependencies
+        run: pip install cloudscraper
 
-      - name: Commit and push if changed
+      - name: Download files using Python
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          import cloudscraper
+          import os
+          import time
+          from urllib.parse import urlparse, unquote
+          import sys
+
+          urls = """${{ github.event.inputs.urls }}""".strip().split()
+          wait = int("""${{ github.event.inputs.wait_seconds }}""")
+          out_dir = "downloads"
+          os.makedirs(out_dir, exist_ok=True)
+
+          scraper = cloudscraper.create_scraper(
+              browser={
+                  'browser': 'chrome',
+                  'platform': 'windows',
+                  'mobile': False
+              }
+          )
+
+          for url in urls:
+              print(f"\n→ Processing: {url}")
+              if wait > 0:
+                  print(f"Waiting {wait} seconds ...")
+                  time.sleep(wait)
+
+              resp = scraper.get(url, allow_redirects=True, stream=True)
+              if resp.status_code != 200:
+                  print(f"❌ Failed (status {resp.status_code}), skipping.")
+                  continue
+
+              # Try to get proper filename
+              cd = resp.headers.get('content-disposition')
+              fname = None
+              if cd:
+                  # Extract filename from header (e.g., attachment; filename="blah.zip")
+                  import re
+                  fname_match = re.findall('filename="?(.+)"?', cd)
+                  if fname_match:
+                      fname = fname_match[0]
+
+              if not fname:
+                  # Fallback: from URL path or query
+                  parsed = urlparse(url)
+                  fname = os.path.basename(unquote(parsed.path))
+                  if not fname or fname == '':
+                      fname = "downloaded_file"
+
+              filepath = os.path.join(out_dir, fname)
+              with open(filepath, 'wb') as f:
+                  for chunk in resp.iter_content(chunk_size=8192):
+                      f.write(chunk)
+              print(f"✅ Saved as: {filepath}")
+        shell: python
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
           git add downloads/
           if git diff --cached --exit-code; then
             echo "No changes to commit."
           else
-            git commit -m "Update Polish translation"
-            git push
-            echo "File committed and pushed."
+            git commit -m "Update downloaded files from CurseForge"
+            git pull --rebase origin ${GITHUB_REF_NAME}
+            git push origin HEAD:${GITHUB_REF_NAME}
+            echo "Pushed successfully."
           fi
